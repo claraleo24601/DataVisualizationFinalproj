@@ -1,0 +1,145 @@
+---
+title: "AQI Analysis"
+format: html
+---
+
+```{python}
+import pandas as pd
+import altair as alt
+import time
+import warnings
+import numpy as np
+import os
+```
+```{python}
+aqi_all = pd.read_csv('AQI_data/aqi_all.csv')
+
+aqi_all.head()
+aqi_all['Date'] = pd.to_datetime(aqi_all['Date'])
+```
+
+```{python}
+#plotting aqi over time 
+
+aqi_all["YearMonth"] = aqi_all["Date"].dt.to_period("M").astype(str)
+
+monthly_avg = (
+    aqi_all
+    .groupby("YearMonth")["AQI"]
+    .mean()
+    .reset_index()
+)
+
+illinois_aqi = alt.Chart(monthly_avg).mark_line().encode(
+    x=alt.X(
+        "YearMonth:T",
+        title="Year",
+        axis=alt.Axis(
+            format="%Y",
+            tickCount="year",
+            labelAngle=0
+        )
+    ),
+    y=alt.Y("AQI:Q", title="Average AQI"),
+    tooltip=["YearMonth:T", "AQI:Q"]
+).properties(
+    width=750,
+    height=400,
+    title="Monthly Average AQI (2018–2025)"
+)
+
+```
+
+```{python}
+#plotting aqi for cook county over time
+
+cook = aqi_all[aqi_all['county Name'] == 'Cook'] 
+
+
+
+cook["YearMonth"] = cook["Date"].dt.to_period("M").astype(str)
+
+monthly_avg_cook = (
+    cook
+    .groupby("YearMonth")["AQI"]
+    .mean()
+    .reset_index()
+)
+
+monthly_avg_cook.describe()
+monthly_avg.describe()
+
+cook_aqi = alt.Chart(monthly_avg_cook).mark_line().encode(
+    x=alt.X(
+        "YearMonth:T",
+        title="Year",
+        axis=alt.Axis(
+            format="%Y",
+            tickCount="year",
+            labelAngle=0
+        )
+    ),
+    y=alt.Y("AQI:Q", title="Average AQI"),
+    tooltip=["YearMonth:T", "AQI:Q"]
+).properties(
+    width=750,
+    height=400,
+    title="Monthly Average AQI in Cook County (2018–2025)"
+)
+
+print("Illinois mean AQI:", aqi_all["AQI"].mean())
+print("Cook mean AQI:", cook["AQI"].mean())
+
+```
+
+```{python}
+cook_aqi & illinois_aqi
+```
+
+```{python}
+import pandas as pd
+import altair as alt
+
+# --- Illinois monthly avg ---
+aqi_all["YearMonth"] = aqi_all["Date"].dt.to_period("M").dt.to_timestamp()
+
+illinois_monthly = (
+    aqi_all
+    .groupby("YearMonth", as_index=False)["AQI"]
+    .mean()
+)
+illinois_monthly["Place"] = "Illinois"
+
+# --- Cook monthly avg ---
+cook = aqi_all[aqi_all["county Name"] == "Cook"].copy()
+cook["YearMonth"] = cook["Date"].dt.to_period("M").dt.to_timestamp()
+
+cook_monthly = (
+    cook
+    .groupby("YearMonth", as_index=False)["AQI"]
+    .mean()
+)
+cook_monthly["Place"] = "Cook County"
+
+# --- Combine ---
+combined = pd.concat([illinois_monthly, cook_monthly], ignore_index=True)
+
+# --- One chart ---
+aqi_both = alt.Chart(combined).mark_line().encode(
+    x=alt.X("YearMonth:T", title="Year",
+            axis=alt.Axis(format="%Y", tickCount="year", labelAngle=0)),
+    y=alt.Y("AQI:Q", title="Average AQI"),
+    color=alt.Color("Place:N", title=""),
+    tooltip=[
+        alt.Tooltip("YearMonth:T", title="Month"),
+        alt.Tooltip("Place:N"),
+        alt.Tooltip("AQI:Q", format=".1f")
+    ]
+).properties(
+    width=750,
+    height=400,
+    title="Monthly Average AQI: Illinois vs Cook County (2018–2025)"
+)
+
+aqi_both
+```
