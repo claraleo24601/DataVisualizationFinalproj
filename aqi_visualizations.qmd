@@ -87,8 +87,6 @@ cook_aqi = alt.Chart(monthly_avg_cook).mark_line().encode(
     title="Monthly Average AQI in Cook County (2018–2025)"
 )
 
-print("Illinois mean AQI:", aqi_all["AQI"].mean())
-print("Cook mean AQI:", cook["AQI"].mean())
 
 ```
 
@@ -97,8 +95,6 @@ cook_aqi & illinois_aqi
 ```
 
 ```{python}
-import pandas as pd
-import altair as alt
 
 # --- Illinois monthly avg ---
 aqi_all["YearMonth"] = aqi_all["Date"].dt.to_period("M").dt.to_timestamp()
@@ -142,4 +138,233 @@ aqi_both = alt.Chart(combined).mark_line().encode(
 )
 
 aqi_both
+```
+
+
+```{python}
+#creating a mark_rect() heatmap to show AQI
+
+cook_daily = (
+    aqi_all.loc[aqi_all["county Name"] == "Cook", ["Date", "AQI"]]
+    .dropna()
+    .assign(date=lambda d: d["Date"].dt.floor("D"))
+    .groupby("date", as_index=False)["AQI"]
+    .mean()
+)
+
+cook_daily["year"]  = cook_daily["date"].dt.year
+cook_daily["month"] = cook_daily["date"].dt.month
+cook_daily["day"]   = cook_daily["date"].dt.day
+
+month_order = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+month_map = {i+1: m for i, m in enumerate(month_order)}
+cook_daily["month_name"] = cook_daily["month"].map(month_map)
+
+# ---- Build full calendar grid ----
+years = sorted(cook_daily["year"].unique())
+
+grid = (
+    pd.MultiIndex.from_product(
+        [years, range(1, 13), range(1, 32)],
+        names=["year", "month", "day"]
+    )
+    .to_frame(index=False)
+)
+
+grid["month_name"] = grid["month"].map(month_map)
+grid["date"] = pd.to_datetime(grid[["year","month","day"]], errors="coerce")
+
+cal = grid.merge(
+    cook_daily[["year","month","day","AQI"]],
+    on=["year","month","day"],
+    how="left"
+)
+
+aqi_min = cook_daily["AQI"].min()
+aqi_max = cook_daily["AQI"].max()
+
+year_dropdown = alt.binding_select(options=years, name="Year: ")
+year_sel = alt.selection_point(fields=["year"], bind=year_dropdown, value=years[0])
+
+calendar_heatmap = alt.Chart(cal).mark_rect().encode(
+    x=alt.X("day:O", title="Day"),
+    y=alt.Y("month_name:O", sort=month_order, title="Month"),
+    color=alt.condition(
+        "isValid(datum.AQI)",
+        alt.Color(
+            "AQI:Q",
+            scale=alt.Scale(
+                domain=[aqi_min, aqi_max],
+                scheme="blues"
+            ),
+            title="AQI"
+        ),
+        alt.value("white")
+    ),
+    tooltip=[
+        alt.Tooltip("date:T", title="Date"),
+        alt.Tooltip("AQI:Q", format=".1f")
+    ]
+).add_params(
+    year_sel
+).transform_filter(
+    year_sel
+).properties(
+    width=900,
+    height=320,
+    title="Cook County Daily AQI Calendar Heatmap (2018–2025)"
+)
+
+calendar_heatmap
+```
+
+
+```{python}
+#reading in temperature data 
+temp = pd.read_csv('AQI_data/temperature.csv')
+```
+
+```{python}
+temp.head()
+
+#subsetting to cook county 
+temp_cook = temp[temp['NAME'] == 'CHICAGO MIDWAY AIRPORT 3 SW, IL US']
+
+temp_cook = temp_cook[["DATE", "tavg_calc", "NAME"]].dropna()
+
+temp_cook = temp_cook.rename(columns={
+    "DATE": "date",
+    "tavg_calc": "temp"
+})
+
+temp_cook["date"] = pd.to_datetime(temp_cook["date"])
+
+temp_cook.head()
+```
+
+```{python}
+#merging aqi and temp data
+
+cook_daily_temp = cook_daily.merge(
+    temp_cook[["date", "temp"]],
+    on="date",
+    how="inner"
+)
+
+cook_daily_temp.head()
+cook_daily_temp.describe()
+
+```
+
+```{python}
+#scatter plot of temp vs aqi 
+
+scatter = alt.Chart(cook_daily_temp).mark_circle(opacity=0.3).encode(
+    x=alt.X("temp:Q", title="Temperature (°F)"),
+    y=alt.Y("AQI:Q", title="AQI"),
+    tooltip=[
+        alt.Tooltip("date:T"),
+        alt.Tooltip("temp:Q", format=".1f"),
+        alt.Tooltip("AQI:Q", format=".1f")
+    ]
+).properties(
+    width=600,
+    height=400,
+    title="Cook County: Daily AQI vs Temperature"
+)
+
+scatter + scatter.transform_regression(
+    "temp", "AQI"
+).mark_line(color="blue")
+
+
+```
+
+```{python}
+#importing virus data for city of chicago
+virus = pd.read_csv('AQI_data/virus.csv')
+virus['week_start'] = pd.to_datetime(virus['week_start'])
+
+#creating year and month columns for virus data
+
+virus['YearMonth'] = virus['week_start'].dt.to_period('M').dt.to_timestamp()
+```
+
+```{python}
+virus_monthly = (
+    virus
+    .dropna(subset=["conc_toplot"])
+    .groupby(["YearMonth", "pathogen"], as_index=False)["conc_toplot"]
+    .mean()
+)
+
+virus_monthly.head()
+
+cook_daily["YearMonth"] = cook_daily["date"].dt.to_period("M").dt.to_timestamp()
+
+aqi_monthly = (
+    cook_daily
+    .groupby("YearMonth", as_index=False)["AQI"]
+    .mean()
+)
+
+cook_daily_temp["YearMonth"] = cook_daily_temp["date"].dt.to_period("M").dt.to_timestamp()
+
+temp_monthly = (
+    cook_daily_temp
+    .groupby("YearMonth", as_index=False)["temp"]
+    .mean()
+)
+
+```
+
+
+```{python}
+#merging virus, aqi, and temp data
+
+df_monthly = (
+    aqi_monthly
+    .merge(temp_monthly, on="YearMonth", how="inner")
+    .merge(virus_monthly, on="YearMonth", how="inner")
+)
+
+df_monthly["YearMonth"] = pd.to_datetime(df_monthly["YearMonth"])
+df_monthly
+
+```
+
+```{python}
+
+
+# dropdown for pathogen
+pathogens = sorted(df_monthly["pathogen"].dropna().unique().tolist())
+path_sel = alt.selection_point(
+    fields=["pathogen"],
+    bind=alt.binding_select(options=pathogens, name="Pathogen: "),
+    value=pathogens[0]
+)
+
+base = alt.Chart(df_monthly).add_params(path_sel).transform_filter(path_sel).encode(
+    x=alt.X("YearMonth:T", title="Year")
+)
+
+virus_line = base.mark_line().encode(
+    y=alt.Y("conc_toplot:Q", title="Virus concentration"),
+    tooltip=["YearMonth:T", "pathogen:N", alt.Tooltip("conc_toplot:Q", format=".2f")]
+)
+
+aqi_line = base.mark_line(strokeDash=[6, 4]).encode(
+    y=alt.Y("AQI:Q", title="AQI"),
+    tooltip=["YearMonth:T", alt.Tooltip("AQI:Q", format=".1f")]
+)
+
+chart = alt.layer(virus_line, aqi_line).resolve_scale(
+    y="independent"
+).properties(
+    width=850,
+    height=380,
+    title="Monthly Virus Concentration (selected) vs AQI"
+)
+
+chart
 ```
