@@ -1,4 +1,3 @@
-# streamlit_app.py
 import streamlit as st
 import pandas as pd
 import geopandas as gpd
@@ -7,15 +6,20 @@ import json
 import os
 
 # -------------------------
+# Base directory for file paths
+# -------------------------
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# -------------------------
 # Load data
 # -------------------------
-df = pd.read_csv('streamlit_data.csv', dtype={"COUNTYFP": str})
+df = pd.read_csv(os.path.join(BASE_DIR, 'streamlit_data.csv'), dtype={"COUNTYFP": str})
 
 # Ensure COUNTYFP is 3-digit
 df["COUNTYFP"] = df["COUNTYFP"].str.zfill(3)
 
 # Load county shapefile
-counties = gpd.read_file('IL_County_Boundaries')
+counties = gpd.read_file(os.path.join(BASE_DIR, 'IL_County_Boundaries'))
 counties = counties[["COUNTYFP", "geometry"]]
 
 # Ensure CRS is WGS84
@@ -93,15 +97,14 @@ st.title("Seasonality of AQI and Temperature Correlation")
 # -------------------------
 chart = (background + foreground).properties(
     width=700,
-    height=650  # a bit taller to fit the tip of Illinois
+    height=650
 ).project(
     type='mercator',
-    center=[-89.3, 40.0],  # slightly shifted east to show the southern tip
-    scale=5200               # slightly smaller scale to fit full state
+    center=[-89.3, 40.0],
+    scale=5200
 )
 
 # -------------------------
 # Display in Streamlit
 # -------------------------
 st.altair_chart(chart, use_container_width=True)
-
